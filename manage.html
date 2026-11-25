@@ -27,7 +27,10 @@ textarea{min-height:70px}button{font:inherit;cursor:pointer;border:0;padding:13p
   <label for="price">Price (₹)</label><input id="price" inputmode="numeric">
   <label for="category">Category</label><select id="category"><option>Gadgets</option><option>Home</option><option>Accessories</option></select>
   <label for="link">Product link</label><input id="link" type="url">
-  <label for="image">Image link (optional)</label><input id="image" type="url">
+  <label for="imageFile">Product image (JPG/PNG, optional)</label>
+  <input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp">
+  <input id="image" type="hidden">
+  <img id="preview" alt="" style="display:none;width:90px;height:90px;object-fit:cover;margin-top:8px;border:1px solid #eae5dc">
   <label for="description">Description</label><textarea id="description"></textarea>
   <button class="save" id="saveBtn">SAVE PRODUCT</button><button class="plain" id="cancelBtn" style="display:none">CANCEL</button>
   <div id="msg"></div>
@@ -56,10 +59,26 @@ async function load(){
  items=r.ok?await r.json():[];
  $('list').innerHTML=items.map((p,i)=>`<div class="item">${p.image?`<img src="${esc(p.image)}" alt="">`:'<img alt="">'}<div class="n">${esc(p.name)}<small>₹${esc(p.price)} · ${esc(p.category)}</small></div><button class="mini" data-e="${i}">EDIT</button><button class="mini del" data-d="${i}">DELETE</button></div>`).join('')||'<p style="color:#77736c;font-size:13px">No products yet.</p>';
 }
-function clearForm(){editId=null;['name','price','link','image','description'].forEach(k=>$(k).value='');$('formTitle').textContent='Add product';$('cancelBtn').style.display='none';}
+function clearForm(){editId=null;['name','price','link','image','description'].forEach(k=>$(k).value='');$('imageFile').value='';setPreview('');$('formTitle').textContent='Add product';$('cancelBtn').style.display='none';}
+function setPreview(u){const p=$('preview');if(u){p.src=u;p.style.display='block';}else{p.removeAttribute('src');p.style.display='none';}}
+$('imageFile').onchange=()=>{const f=$('imageFile').files[0];if(f)setPreview(URL.createObjectURL(f));else setPreview($('image').value);};
+function shrink(file,max=1000){return new Promise(res=>{const im=new Image(),u=URL.createObjectURL(file);
+ im.onload=()=>{const k=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+  const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);
+  c.toBlob(b=>res(b||file),'image/jpeg',0.85);URL.revokeObjectURL(u);};
+ im.onerror=()=>res(file);im.src=u;});}
+async function uploadImage(file){
+ const blob=await shrink(file),name=Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
+ const r=await fetch(URL_+'/storage/v1/object/product-images/'+name,{method:'POST',headers:{apikey:KEY,Authorization:'Bearer '+token,'Content-Type':blob.type||'image/jpeg'},body:blob});
+ if(r.status===401){logout();throw new Error('Session expired');}
+ if(!r.ok){let t='';try{t=await r.text()}catch(e){}throw new Error('Image upload failed ('+r.status+'): '+t.slice(0,200));}
+ return URL_+'/storage/v1/object/public/product-images/'+name;
+}
 async function save(){
  const row={name:$('name').value.trim(),price:$('price').value.trim(),category:$('category').value,link:$('link').value.trim(),description:$('description').value.trim(),image:$('image').value.trim()};
  if(!row.name||!row.price||!row.link){say('Name, price and link are required.');return;}
+ const f=$('imageFile').files[0];
+ if(f){say('Uploading image...',true);try{row.image=await uploadImage(f);}catch(e){say(e.message);return;}}
  let r;
  if(editId!==null){r=await fetch(URL_+'/rest/v1/products?id=eq.'+encodeURIComponent(editId),{method:'PATCH',headers:H(),body:JSON.stringify(row)});}
  else{r=await fetch(URL_+'/rest/v1/products',{method:'POST',headers:H(),body:JSON.stringify(row)});
@@ -76,6 +95,6 @@ async function del(i){
 function logout(){token=null;try{sessionStorage.removeItem('mf_t')}catch(e){}$('app').style.display='none';$('login').style.display='block';}
 $('loginBtn').onclick=login;$('saveBtn').onclick=save;$('cancelBtn').onclick=clearForm;$('logoutBtn').onclick=logout;
 $('list').onclick=e=>{const b=e.target;if(b.dataset.d!==undefined)del(+b.dataset.d);
- if(b.dataset.e!==undefined){const p=items[+b.dataset.e];editId=p.id;['name','price','link','image','description'].forEach(k=>$(k).value=p[k]||'');$('category').value=p.category;$('formTitle').textContent='Edit product';$('cancelBtn').style.display='inline-block';scrollTo(0,0);}};
+ if(b.dataset.e!==undefined){const p=items[+b.dataset.e];editId=p.id;['name','price','link','image','description'].forEach(k=>$(k).value=p[k]||'');$('category').value=p.category;$('imageFile').value='';setPreview(p.image);$('formTitle').textContent='Edit product';$('cancelBtn').style.display='inline-block';scrollTo(0,0);}};
 try{const t=sessionStorage.getItem('mf_t');if(t){token=t;show();}}catch(e){}
 </script></body></html>
